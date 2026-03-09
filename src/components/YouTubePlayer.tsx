@@ -32,7 +32,6 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [volume, setVolume] = useState(100);
-  const [isBehindLive, setIsBehindLive] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
@@ -43,9 +42,11 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
-  const lastDurationRef = useRef(0);
 
   const videoId = extractVideoId(youtubeUrl);
+
+  // Is user behind the live edge?
+  const isBehindLive = isLive && duration > 0 && duration - currentTime > 10;
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -92,19 +93,16 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
           event.target.mute();
           setIsMuted(true);
           setVolume(event.target.getVolume());
-          const quals = event.target.getAvailableQualityLevels?.() || [];
-          setAvailableQualities(quals);
+          setAvailableQualities(event.target.getAvailableQualityLevels?.() || []);
           event.target.playVideo();
         },
         onStateChange: (event: any) => {
           setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
           if (event.data === window.YT.PlayerState.PLAYING) {
-            const dur = playerRef.current?.getDuration?.() || 0;
-            setDuration(dur);
-            // Detect live: check getVideoData().isLive or if duration keeps growing
+            setDuration(playerRef.current?.getDuration?.() || 0);
+            // YouTube API: getVideoData().isLive is the simplest live check
             try {
-              const videoData = playerRef.current?.getVideoData?.();
-              if (videoData?.isLive) setIsLive(true);
+              if (playerRef.current?.getVideoData?.()?.isLive) setIsLive(true);
             } catch {}
           }
         },
@@ -112,32 +110,17 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
     });
   }
 
-  // Update time & detect behind-live
+  // Poll time + duration
   useEffect(() => {
     if (!playerReady) return;
     const interval = setInterval(() => {
-      if (playerRef.current?.getCurrentTime) {
-        const ct = playerRef.current.getCurrentTime();
-        const dur = playerRef.current.getDuration?.() || 0;
-        setCurrentTime(ct);
-        setDuration(dur);
-
-        // Detect live: if duration keeps growing, it's a live stream
-        if (!isLive && dur > 0 && lastDurationRef.current > 0 && dur > lastDurationRef.current + 0.5) {
-          setIsLive(true);
-        }
-        lastDurationRef.current = dur;
-
-        // For live streams, if current time is more than 10s behind duration, user is behind live edge
-        if (isLive && dur > 0 && dur - ct > 10) {
-          setIsBehindLive(true);
-        } else {
-          setIsBehindLive(false);
-        }
-      }
+      const p = playerRef.current;
+      if (!p?.getCurrentTime) return;
+      setCurrentTime(p.getCurrentTime());
+      setDuration(p.getDuration?.() || 0);
     }, 1000);
     return () => clearInterval(interval);
-  }, [playerReady, isLive]);
+  }, [playerReady]);
 
   // Auto-hide controls
   const resetControlsTimer = useCallback(() => {
@@ -166,25 +149,15 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   };
 
   const toggleMute = () => {
-    if (isMuted) {
-      playerRef.current?.unMute();
-      setIsMuted(false);
-    } else {
-      playerRef.current?.mute();
-      setIsMuted(true);
-    }
+    if (isMuted) { playerRef.current?.unMute(); setIsMuted(false); }
+    else { playerRef.current?.mute(); setIsMuted(true); }
   };
 
   const handleVolumeChange = (val: number) => {
     playerRef.current?.setVolume(val);
     setVolume(val);
-    if (val === 0) {
-      playerRef.current?.mute();
-      setIsMuted(true);
-    } else if (isMuted) {
-      playerRef.current?.unMute();
-      setIsMuted(false);
-    }
+    if (val === 0) { playerRef.current?.mute(); setIsMuted(true); }
+    else if (isMuted) { playerRef.current?.unMute(); setIsMuted(false); }
   };
 
   const handleSeek = (fraction: number) => {
@@ -200,25 +173,7 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
 
   const goToLive = () => {
     const dur = playerRef.current?.getDuration?.() || 0;
-    if (dur > 0) {
-      playerRef.current?.seekTo(dur, true);
-      setIsBehindLive(false);
-    }
-  };
-
-  const handleQualityChange = (q: string) => {
-    playerRef.current?.setPlaybackQuality?.(q);
-    setQuality(q);
-    setShowQualityMenu(false);
-  };
-
-  const handleCast = () => {
-    // Use native Picture-in-Picture as a fallback for "cast"
-    const iframe = containerRef.current?.querySelector?.("iframe") as HTMLIFrameElement | null;
-    if (iframe && document.pictureInPictureEnabled) {
-      // PiP requires a video element, cast button will trigger browser's built-in
-      // For now just show a message
-    }
+    if (dur > 0) playerRef.current?.seekTo(dur, true);
   };
 
   const formatTime = (seconds: number) => {
@@ -230,16 +185,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   };
 
   const qualityLabels: Record<string, string> = {
-    highres: "4K",
-    hd2160: "4K",
-    hd1440: "1440p",
-    hd1080: "1080p",
-    hd720: "720p",
-    large: "480p",
-    medium: "360p",
-    small: "240p",
-    tiny: "144p",
-    auto: "Auto",
+    highres: "4K", hd2160: "4K", hd1440: "1440p", hd1080: "1080p",
+    hd720: "720p", large: "480p", medium: "360p", small: "240p",
+    tiny: "144p", auto: "Auto",
   };
 
   if (!videoId) {
@@ -253,32 +201,28 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   return (
     <div
       ref={wrapperRef}
-      data-player-wrapper=""
       className="relative w-full h-full bg-black group"
       onMouseMove={resetControlsTimer}
       onTouchStart={resetControlsTimer}
       onClick={(e) => {
-        // Click on the video area (not controls) toggles play
         if ((e.target as HTMLElement).closest("[data-controls]")) return;
         togglePlay();
       }}
     >
-      {/* YouTube Player (hidden controls) */}
+      {/* YouTube Player */}
       <div ref={containerRef} className="w-full h-full pointer-events-none" />
 
-      {/* Custom Controls Overlay */}
+      {/* Custom Controls */}
       <div
         data-controls=""
         className="absolute inset-0 flex flex-col justify-end pointer-events-none transition-opacity duration-300"
         style={{ opacity: showControls ? 1 : 0 }}
       >
-        {/* Gradient background for controls visibility */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
 
-        {/* Controls bar */}
         <div className="relative z-10 px-4 pb-3 pt-2 pointer-events-auto">
-          {/* Progress bar */}
-          {!isLive && duration > 0 && (
+          {/* Progress bar — always visible when duration exists */}
+          {duration > 0 && (
             <div
               className="w-full h-1 bg-white/10 rounded-full mb-3 cursor-pointer group/progress relative"
               onClick={(e) => {
@@ -302,11 +246,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
               className="w-10 h-10 flex items-center justify-center rounded-full bg-[#06F9A8] text-[#0f231c] hover:bg-[#34fabb] transition-all hover:scale-105 flex-shrink-0"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                {isPlaying ? (
-                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                ) : (
-                  <path d="M8 5v14l11-7z" />
-                )}
+                {isPlaying
+                  ? <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                  : <path d="M8 5v14l11-7z" />}
               </svg>
             </button>
 
@@ -331,17 +273,14 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
                 </svg>
               </button>
               {showVolumeSlider && (
-                <div className="flex items-center ml-1">
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={isMuted ? 0 : volume}
-                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-20 h-1 accent-[#06F9A8] cursor-pointer"
-                  />
-                </div>
+                <input
+                  type="range"
+                  min={0} max={100}
+                  value={isMuted ? 0 : volume}
+                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  onClick={(e) => e.stopPropagation()}
+                  className="ml-1 w-20 h-1 accent-[#06F9A8] cursor-pointer"
+                />
               )}
             </div>
 
@@ -351,7 +290,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
                 <>
                   <button
                     onClick={(e) => { e.stopPropagation(); if (isBehindLive) goToLive(); }}
-                    className={`text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded tracking-wider transition-colors ${isBehindLive ? 'bg-white/20 cursor-pointer hover:bg-white/30' : 'bg-red-600 cursor-default'}`}
+                    className={`text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded tracking-wider transition-colors ${
+                      isBehindLive ? "bg-white/20 cursor-pointer hover:bg-white/30" : "bg-red-600 cursor-default"
+                    }`}
                   >
                     {isBehindLive ? "Go Live" : "Live"}
                   </button>
@@ -366,13 +307,10 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
               )}
             </div>
 
-            {/* Quality selector */}
+            {/* Quality */}
             <div className="relative">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowQualityMenu(!showQualityMenu);
-                }}
+                onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }}
                 className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
@@ -381,29 +319,20 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
               </button>
               {showQualityMenu && (
                 <div className="absolute bottom-10 right-0 bg-[#1a1a1a] border border-white/10 rounded-lg py-1 min-w-[120px] shadow-2xl">
-                  {availableQualities.length > 0
-                    ? availableQualities.map((q) => (
-                        <button
-                          key={q}
-                          onClick={(e) => { e.stopPropagation(); handleQualityChange(q); }}
-                          className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/10 transition-colors ${
-                            quality === q ? "text-[#06F9A8]" : "text-white/70"
-                          }`}
-                        >
-                          {qualityLabels[q] || q}
-                        </button>
-                      ))
-                    : ["auto", "hd1080", "hd720", "large"].map((q) => (
-                        <button
-                          key={q}
-                          onClick={(e) => { e.stopPropagation(); handleQualityChange(q); }}
-                          className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/10 transition-colors ${
-                            quality === q ? "text-[#06F9A8]" : "text-white/70"
-                          }`}
-                        >
-                          {qualityLabels[q] || q}
-                        </button>
-                      ))}
+                  {(availableQualities.length > 0
+                    ? availableQualities
+                    : ["auto", "hd1080", "hd720", "large"]
+                  ).map((q) => (
+                    <button
+                      key={q}
+                      onClick={(e) => { e.stopPropagation(); playerRef.current?.setPlaybackQuality?.(q); setQuality(q); setShowQualityMenu(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/10 transition-colors ${
+                        quality === q ? "text-[#06F9A8]" : "text-white/70"
+                      }`}
+                    >
+                      {qualityLabels[q] || q}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -414,11 +343,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
               className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                {isFullscreen ? (
-                  <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
-                ) : (
-                  <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
-                )}
+                {isFullscreen
+                  ? <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+                  : <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />}
               </svg>
             </button>
           </div>
