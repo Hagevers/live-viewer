@@ -37,12 +37,13 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isLive, setIsLive] = useState(true);
+  const [isLive, setIsLive] = useState(false);
   const [quality, setQuality] = useState("auto");
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
+  const lastDurationRef = useRef(0);
 
   const videoId = extractVideoId(youtubeUrl);
 
@@ -100,7 +101,11 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
           if (event.data === window.YT.PlayerState.PLAYING) {
             const dur = playerRef.current?.getDuration?.() || 0;
             setDuration(dur);
-            setIsLive(dur === 0 || dur > 36000);
+            // Detect live: check getVideoData().isLive or if duration keeps growing
+            try {
+              const videoData = playerRef.current?.getVideoData?.();
+              if (videoData?.isLive) setIsLive(true);
+            } catch {}
           }
         },
       },
@@ -115,14 +120,22 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
         const ct = playerRef.current.getCurrentTime();
         const dur = playerRef.current.getDuration?.() || 0;
         setCurrentTime(ct);
-        // For live streams, if current time is more than 15s behind duration, user is behind live
-        if (isLive && dur > 0 && dur - ct > 15) {
+        setDuration(dur);
+
+        // Detect live: if duration keeps growing, it's a live stream
+        if (!isLive && dur > 0 && lastDurationRef.current > 0 && dur > lastDurationRef.current + 0.5) {
+          setIsLive(true);
+        }
+        lastDurationRef.current = dur;
+
+        // For live streams, if current time is more than 10s behind duration, user is behind live edge
+        if (isLive && dur > 0 && dur - ct > 10) {
           setIsBehindLive(true);
         } else {
           setIsBehindLive(false);
         }
       }
-    }, 500);
+    }, 1000);
     return () => clearInterval(interval);
   }, [playerReady, isLive]);
 
@@ -209,8 +222,10 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   };
 
   const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
@@ -334,17 +349,15 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
             <div className="flex-1 flex items-center gap-2">
               {isLive ? (
                 <>
-                  <span className={`text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded tracking-wider ${isBehindLive ? 'bg-white/20' : 'bg-red-600'}`}>
-                    Live
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (isBehindLive) goToLive(); }}
+                    className={`text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded tracking-wider transition-colors ${isBehindLive ? 'bg-white/20 cursor-pointer hover:bg-white/30' : 'bg-red-600 cursor-default'}`}
+                  >
+                    {isBehindLive ? "Go Live" : "Live"}
+                  </button>
+                  <span className="text-white/40 text-xs font-mono">
+                    {formatTime(currentTime)}
                   </span>
-                  {isBehindLive && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); goToLive(); }}
-                      className="text-[#06F9A8] text-xs font-semibold hover:text-[#34fabb] transition-colors"
-                    >
-                      Go to Live →
-                    </button>
-                  )}
                 </>
               ) : (
                 <span className="text-white/50 text-xs font-mono">
