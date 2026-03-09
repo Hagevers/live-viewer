@@ -24,13 +24,15 @@ declare global {
 }
 
 export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [volume, setVolume] = useState(100);
+  const [isBehindLive, setIsBehindLive] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
@@ -86,8 +88,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
       events: {
         onReady: (event: any) => {
           setPlayerReady(true);
+          event.target.mute();
+          setIsMuted(true);
           setVolume(event.target.getVolume());
-          setIsMuted(event.target.isMuted());
           const quals = event.target.getAvailableQualityLevels?.() || [];
           setAvailableQualities(quals);
           event.target.playVideo();
@@ -104,16 +107,24 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
     });
   }
 
-  // Update time
+  // Update time & detect behind-live
   useEffect(() => {
     if (!playerReady) return;
     const interval = setInterval(() => {
       if (playerRef.current?.getCurrentTime) {
-        setCurrentTime(playerRef.current.getCurrentTime());
+        const ct = playerRef.current.getCurrentTime();
+        const dur = playerRef.current.getDuration?.() || 0;
+        setCurrentTime(ct);
+        // For live streams, if current time is more than 15s behind duration, user is behind live
+        if (isLive && dur > 0 && dur - ct > 15) {
+          setIsBehindLive(true);
+        } else {
+          setIsBehindLive(false);
+        }
       }
     }, 500);
     return () => clearInterval(interval);
-  }, [playerReady]);
+  }, [playerReady, isLive]);
 
   // Auto-hide controls
   const resetControlsTimer = useCallback(() => {
@@ -169,10 +180,17 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   };
 
   const toggleFullscreen = () => {
-    const wrapper = containerRef.current?.closest("[data-player-wrapper]");
-    if (!wrapper) return;
+    if (!wrapperRef.current) return;
     if (document.fullscreenElement) document.exitFullscreen();
-    else wrapper.requestFullscreen();
+    else wrapperRef.current.requestFullscreen();
+  };
+
+  const goToLive = () => {
+    const dur = playerRef.current?.getDuration?.() || 0;
+    if (dur > 0) {
+      playerRef.current?.seekTo(dur, true);
+      setIsBehindLive(false);
+    }
   };
 
   const handleQualityChange = (q: string) => {
@@ -219,6 +237,7 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
 
   return (
     <div
+      ref={wrapperRef}
       data-player-wrapper=""
       className="relative w-full h-full bg-black group"
       onMouseMove={resetControlsTimer}
@@ -312,11 +331,21 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
             </div>
 
             {/* Time / Live badge */}
-            <div className="flex-1 flex items-center">
+            <div className="flex-1 flex items-center gap-2">
               {isLive ? (
-                <span className="bg-red-600 text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded tracking-wider">
-                  Live
-                </span>
+                <>
+                  <span className={`text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded tracking-wider ${isBehindLive ? 'bg-white/20' : 'bg-red-600'}`}>
+                    Live
+                  </span>
+                  {isBehindLive && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); goToLive(); }}
+                      className="text-[#06F9A8] text-xs font-semibold hover:text-[#34fabb] transition-colors"
+                    >
+                      Go to Live →
+                    </button>
+                  )}
+                </>
               ) : (
                 <span className="text-white/50 text-xs font-mono">
                   {formatTime(currentTime)} / {formatTime(duration)}
