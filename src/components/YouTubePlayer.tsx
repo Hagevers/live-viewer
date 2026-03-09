@@ -223,13 +223,20 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
     if (!wrapper) return;
     const doc = document as any;
 
-    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
-      if (doc.exitFullscreen) doc.exitFullscreen();
-      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
-    } else {
-      if (wrapper.requestFullscreen) wrapper.requestFullscreen();
-      else if (wrapper.webkitRequestFullscreen) wrapper.webkitRequestFullscreen();
+    // Check if native fullscreen API is available and works (desktop + Android)
+    if (wrapper.requestFullscreen) {
+      if (doc.fullscreenElement) doc.exitFullscreen();
+      else wrapper.requestFullscreen();
+      return;
     }
+    // webkit prefix (older Safari desktop)
+    if (wrapper.webkitRequestFullscreen) {
+      if (doc.webkitFullscreenElement) doc.webkitExitFullscreen();
+      else wrapper.webkitRequestFullscreen();
+      return;
+    }
+    // iOS Safari: no fullscreen API on divs, use CSS-based fullscreen
+    setIsFullscreen((prev) => !prev);
   };
 
   const goToLive = () => {
@@ -277,11 +284,11 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   return (
     <div
       ref={wrapperRef}
-      className="relative w-full h-full bg-black group"
+      className={`relative bg-black group ${isFullscreen ? "fixed inset-0 z-[9999] w-screen h-screen" : "w-full h-full"}`}
       onMouseMove={resetControlsTimer}
     >
-      {/* YouTube Player */}
-      <div ref={containerRef} className="w-full h-full" />
+      {/* YouTube Player — pointer-events-none prevents YouTube's own UI from activating */}
+      <div ref={containerRef} className="w-full h-full pointer-events-none" />
 
       {/* Single overlay: captures taps on video area + contains controls */}
       <div
