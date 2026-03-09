@@ -28,6 +28,7 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const progressRef = useRef<HTMLDivElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -44,11 +45,8 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   const [playerReady, setPlayerReady] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekFraction, setSeekFraction] = useState(0);
-  const progressRef = useRef<HTMLDivElement>(null);
 
   const videoId = extractVideoId(youtubeUrl);
-
-  // Is user behind the live edge?
   const isBehindLive = isLive && duration > 0 && duration - currentTime > 10;
 
   // Load YouTube IFrame API
@@ -103,7 +101,6 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
           setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
           if (event.data === window.YT.PlayerState.PLAYING) {
             setDuration(playerRef.current?.getDuration?.() || 0);
-            // YouTube API: getVideoData().isLive is the simplest live check
             try {
               if (playerRef.current?.getVideoData?.()?.isLive) setIsLive(true);
             } catch {}
@@ -141,9 +138,16 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
 
   // Fullscreen change listener
   useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    const handler = () => {
+      const doc = document as any;
+      setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
     document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
+    document.addEventListener("webkitfullscreenchange", handler);
+    return () => {
+      document.removeEventListener("fullscreenchange", handler);
+      document.removeEventListener("webkitfullscreenchange", handler);
+    };
   }, []);
 
   const togglePlay = () => {
@@ -163,26 +167,26 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
     else if (isMuted) { playerRef.current?.unMute(); setIsMuted(false); }
   };
 
-  const getFraction = (e: MouseEvent | React.MouseEvent) => {
+  // Progress bar: get fraction from mouse or touch event
+  const getProgressFraction = (clientX: number) => {
     if (!progressRef.current) return 0;
     const rect = progressRef.current.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   };
 
-  const handleSeekStart = (e: React.MouseEvent) => {
+  // Mouse seek (desktop)
+  const handleSeekMouseDown = (e: React.MouseEvent) => {
     if (!duration) return;
     e.stopPropagation();
-    const frac = getFraction(e as unknown as MouseEvent);
+    e.preventDefault();
+    const frac = getProgressFraction(e.clientX);
     setIsSeeking(true);
     setSeekFraction(frac);
 
-    const onMove = (ev: MouseEvent) => {
-      setSeekFraction(getFraction(ev));
-    };
+    const onMove = (ev: MouseEvent) => setSeekFraction(getProgressFraction(ev.clientX));
     const onUp = (ev: MouseEvent) => {
-      const finalFrac = getFraction(ev);
       setIsSeeking(false);
-      playerRef.current?.seekTo(finalFrac * duration, true);
+      playerRef.current?.seekTo(getProgressFraction(ev.clientX) * duration, true);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
@@ -190,10 +194,42 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
     window.addEventListener("mouseup", onUp);
   };
 
+  // Touch seek (iOS/mobile)
+  const handleSeekTouchStart = (e: React.TouchEvent) => {
+    if (!duration) return;
+    e.stopPropagation();
+    const touch = e.touches[0];
+    const frac = getProgressFraction(touch.clientX);
+    setIsSeeking(true);
+    setSeekFraction(frac);
+  };
+
+  const handleSeekTouchMove = (e: React.TouchEvent) => {
+    if (!isSeeking) return;
+    e.stopPropagation();
+    const touch = e.touches[0];
+    setSeekFraction(getProgressFraction(touch.clientX));
+  };
+
+  const handleSeekTouchEnd = (e: React.TouchEvent) => {
+    if (!isSeeking || !duration) return;
+    e.stopPropagation();
+    setIsSeeking(false);
+    playerRef.current?.seekTo(seekFraction * duration, true);
+  };
+
   const toggleFullscreen = () => {
-    if (!wrapperRef.current) return;
-    if (document.fullscreenElement) document.exitFullscreen();
-    else wrapperRef.current.requestFullscreen();
+    const wrapper = wrapperRef.current as any;
+    if (!wrapper) return;
+    const doc = document as any;
+
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      if (doc.exitFullscreen) doc.exitFullscreen();
+      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+    } else {
+      if (wrapper.requestFullscreen) wrapper.requestFullscreen();
+      else if (wrapper.webkitRequestFullscreen) wrapper.webkitRequestFullscreen();
+    }
   };
 
   const goToLive = () => {
@@ -215,6 +251,21 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
     tiny: "144p", auto: "Auto",
   };
 
+  // Tap handler for wrapper — on mobile, tap toggles controls visibility; on desktop, click toggles play
+  const handleWrapperTap = (e: React.MouseEvent | React.TouchEvent) => {
+    if ((e.target as HTMLElement).closest("[data-controls]")) return;
+    // On touch devices, first tap shows controls, second tap toggles play
+    if ("touches" in e) {
+      if (!showControls) {
+        resetControlsTimer();
+        return;
+      }
+      togglePlay();
+    } else {
+      togglePlay();
+    }
+  };
+
   if (!videoId) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-black text-white/50">
@@ -228,36 +279,50 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
       ref={wrapperRef}
       className="relative w-full h-full bg-black group"
       onMouseMove={resetControlsTimer}
-      onTouchStart={resetControlsTimer}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest("[data-controls]")) return;
-        togglePlay();
-      }}
     >
       {/* YouTube Player */}
-      <div ref={containerRef} className="w-full h-full pointer-events-none" />
+      <div ref={containerRef} className="w-full h-full" />
+
+      {/* Touch/click capture layer — sits on top of iframe to intercept touches on iOS */}
+      <div
+        className="absolute inset-0 z-10"
+        onClick={handleWrapperTap}
+        onTouchEnd={(e) => {
+          // Only handle single taps on the video area, not on controls
+          if ((e.target as HTMLElement).closest("[data-controls]")) return;
+          handleWrapperTap(e);
+        }}
+      />
 
       {/* Custom Controls */}
       <div
         data-controls=""
-        className="absolute inset-0 flex flex-col justify-end pointer-events-none transition-opacity duration-300"
-        style={{ opacity: showControls ? 1 : 0 }}
+        className="absolute inset-0 z-20 flex flex-col justify-end transition-opacity duration-300"
+        style={{ opacity: showControls ? 1 : 0, pointerEvents: showControls ? "auto" : "none" }}
       >
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
 
-        <div className="relative z-10 px-4 pb-3 pt-2 pointer-events-auto">
-          {/* Progress bar — always visible when duration exists */}
+        <div className="relative z-10 px-4 pb-3 pt-2">
+          {/* Progress bar */}
           {duration > 0 && (
             <div
               ref={progressRef}
-              className="w-full h-1.5 bg-white/10 rounded-full mb-3 cursor-pointer group/progress relative hover:h-2 transition-all"
-              onMouseDown={handleSeekStart}
+              className="w-full h-3 flex items-center mb-2 cursor-pointer group/progress relative touch-none"
+              onMouseDown={handleSeekMouseDown}
+              onTouchStart={handleSeekTouchStart}
+              onTouchMove={handleSeekTouchMove}
+              onTouchEnd={handleSeekTouchEnd}
             >
-              <div
-                className="h-full bg-[#06F9A8] rounded-full relative"
-                style={{ width: `${(isSeeking ? seekFraction : currentTime / duration) * 100}%` }}
-              >
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-[#06F9A8] rounded-full scale-0 group-hover/progress:scale-100 transition-transform shadow-md" style={isSeeking ? { transform: "translateY(-50%) scale(1)" } : {}} />
+              <div className="w-full h-1.5 bg-white/10 rounded-full relative group-hover/progress:h-2 transition-all">
+                <div
+                  className="h-full bg-[#06F9A8] rounded-full relative"
+                  style={{ width: `${(isSeeking ? seekFraction : currentTime / duration) * 100}%` }}
+                >
+                  <div
+                    className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-[#06F9A8] rounded-full shadow-md transition-transform"
+                    style={{ transform: `translateY(-50%) scale(${isSeeking ? 1 : 0})` }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -265,8 +330,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
           <div className="flex items-center gap-3">
             {/* Play/Pause */}
             <button
+              onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); togglePlay(); }}
               onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-[#06F9A8] text-[#0f231c] hover:bg-[#34fabb] transition-all hover:scale-105 flex-shrink-0"
+              className="w-10 h-10 flex items-center justify-center rounded-full bg-[#06F9A8] text-[#0f231c] active:bg-[#34fabb] hover:bg-[#34fabb] transition-all active:scale-95 hover:scale-105 flex-shrink-0"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 {isPlaying
@@ -276,14 +342,13 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
             </button>
 
             {/* Volume */}
-            <div
-              className="relative flex items-center"
-              onMouseEnter={() => setShowVolumeSlider(true)}
-              onMouseLeave={() => setShowVolumeSlider(false)}
-            >
+            <div className="relative flex items-center">
               <button
+                onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); toggleMute(); }}
                 onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-                className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+                onMouseEnter={() => setShowVolumeSlider(true)}
+                onMouseLeave={() => setShowVolumeSlider(false)}
+                className="w-8 h-8 flex items-center justify-center text-white/70 active:text-white hover:text-white transition-colors"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                   {isMuted || volume === 0 ? (
@@ -301,6 +366,8 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
                   min={0} max={100}
                   value={isMuted ? 0 : volume}
                   onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  onMouseEnter={() => setShowVolumeSlider(true)}
+                  onMouseLeave={() => setShowVolumeSlider(false)}
                   onClick={(e) => e.stopPropagation()}
                   className="ml-1 w-20 h-1 accent-[#06F9A8] cursor-pointer"
                 />
@@ -312,9 +379,10 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
               {isLive ? (
                 <>
                   <button
+                    onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); if (isBehindLive) goToLive(); }}
                     onClick={(e) => { e.stopPropagation(); if (isBehindLive) goToLive(); }}
                     className={`text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded tracking-wider transition-colors ${
-                      isBehindLive ? "bg-white/20 cursor-pointer hover:bg-white/30" : "bg-red-600 cursor-default"
+                      isBehindLive ? "bg-white/20 cursor-pointer active:bg-white/30 hover:bg-white/30" : "bg-red-600 cursor-default"
                     }`}
                   >
                     {isBehindLive ? "Go Live" : "Live"}
@@ -333,8 +401,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
             {/* Quality */}
             <div className="relative">
               <button
+                onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); setShowQualityMenu(!showQualityMenu); }}
                 onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }}
-                className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+                className="w-8 h-8 flex items-center justify-center text-white/70 active:text-white hover:text-white transition-colors"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                   <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
@@ -348,8 +417,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
                   ).map((q) => (
                     <button
                       key={q}
+                      onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); playerRef.current?.setPlaybackQuality?.(q); setQuality(q); setShowQualityMenu(false); }}
                       onClick={(e) => { e.stopPropagation(); playerRef.current?.setPlaybackQuality?.(q); setQuality(q); setShowQualityMenu(false); }}
-                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/10 transition-colors ${
+                      className={`w-full text-left px-3 py-2 text-sm active:bg-white/10 hover:bg-white/10 transition-colors ${
                         quality === q ? "text-[#06F9A8]" : "text-white/70"
                       }`}
                     >
@@ -362,8 +432,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
 
             {/* Fullscreen */}
             <button
+              onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); toggleFullscreen(); }}
               onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-              className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+              className="w-8 h-8 flex items-center justify-center text-white/70 active:text-white hover:text-white transition-colors"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 {isFullscreen
