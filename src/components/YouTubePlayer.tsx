@@ -42,6 +42,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekFraction, setSeekFraction] = useState(0);
+  const progressRef = useRef<HTMLDivElement>(null);
 
   const videoId = extractVideoId(youtubeUrl);
 
@@ -160,9 +163,31 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
     else if (isMuted) { playerRef.current?.unMute(); setIsMuted(false); }
   };
 
-  const handleSeek = (fraction: number) => {
+  const getFraction = (e: MouseEvent | React.MouseEvent) => {
+    if (!progressRef.current) return 0;
+    const rect = progressRef.current.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  };
+
+  const handleSeekStart = (e: React.MouseEvent) => {
     if (!duration) return;
-    playerRef.current?.seekTo(fraction * duration, true);
+    e.stopPropagation();
+    const frac = getFraction(e as unknown as MouseEvent);
+    setIsSeeking(true);
+    setSeekFraction(frac);
+
+    const onMove = (ev: MouseEvent) => {
+      setSeekFraction(getFraction(ev));
+    };
+    const onUp = (ev: MouseEvent) => {
+      const finalFrac = getFraction(ev);
+      setIsSeeking(false);
+      playerRef.current?.seekTo(finalFrac * duration, true);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   };
 
   const toggleFullscreen = () => {
@@ -224,17 +249,15 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
           {/* Progress bar — always visible when duration exists */}
           {duration > 0 && (
             <div
-              className="w-full h-1 bg-white/10 rounded-full mb-3 cursor-pointer group/progress relative"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                handleSeek((e.clientX - rect.left) / rect.width);
-              }}
+              ref={progressRef}
+              className="w-full h-1.5 bg-white/10 rounded-full mb-3 cursor-pointer group/progress relative hover:h-2 transition-all"
+              onMouseDown={handleSeekStart}
             >
               <div
                 className="h-full bg-[#06F9A8] rounded-full relative"
-                style={{ width: `${(currentTime / duration) * 100}%` }}
+                style={{ width: `${(isSeeking ? seekFraction : currentTime / duration) * 100}%` }}
               >
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-[#06F9A8] rounded-full opacity-0 group-hover/progress:opacity-100 transition-opacity" />
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-[#06F9A8] rounded-full scale-0 group-hover/progress:scale-100 transition-transform shadow-md" style={isSeeking ? { transform: "translateY(-50%) scale(1)" } : {}} />
               </div>
             </div>
           )}
