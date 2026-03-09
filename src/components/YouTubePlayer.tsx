@@ -283,26 +283,31 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
       {/* YouTube Player */}
       <div ref={containerRef} className="w-full h-full" />
 
-      {/* Touch/click capture layer — sits on top of iframe to intercept touches on iOS */}
+      {/* Single overlay: captures taps on video area + contains controls */}
       <div
         className="absolute inset-0 z-10"
-        onClick={handleWrapperTap}
-        onTouchEnd={(e) => {
-          // Only handle single taps on the video area, not on controls
-          if ((e.target as HTMLElement).closest("[data-controls]")) return;
-          handleWrapperTap(e);
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest("[data-controls-bar]")) return;
+          togglePlay();
         }}
-      />
-
-      {/* Custom Controls */}
-      <div
-        data-controls=""
-        className="absolute inset-0 z-20 flex flex-col justify-end transition-opacity duration-300"
-        style={{ opacity: showControls ? 1 : 0, pointerEvents: showControls ? "auto" : "none" }}
+        onTouchEnd={(e) => {
+          if ((e.target as HTMLElement).closest("[data-controls-bar]")) return;
+          e.preventDefault();
+          if (!showControls) {
+            resetControlsTimer();
+            return;
+          }
+          togglePlay();
+        }}
       >
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+        {/* Controls area at bottom */}
+        <div
+          className="absolute bottom-0 left-0 right-0 flex flex-col justify-end transition-opacity duration-300"
+          style={{ opacity: showControls ? 1 : 0, pointerEvents: showControls ? "auto" : "none" }}
+        >
+          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
 
-        <div className="relative z-10 px-4 pb-3 pt-2">
+          <div data-controls-bar="" className="relative z-10 px-4 pb-3 pt-2">
           {/* Progress bar */}
           {duration > 0 && (
             <div
@@ -443,6 +448,7 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
               </svg>
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>
