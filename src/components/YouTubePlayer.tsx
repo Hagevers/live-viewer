@@ -236,7 +236,14 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
       return;
     }
     // iOS Safari: no fullscreen API on divs, use CSS-based fullscreen
-    setIsFullscreen((prev) => !prev);
+    setIsFullscreen((prev) => {
+      const next = !prev;
+      // Lock/unlock body scroll for CSS fullscreen
+      document.body.style.overflow = next ? "hidden" : "";
+      // Try to lock orientation to landscape
+      try { (screen.orientation as any)?.lock?.("landscape"); } catch {}
+      return next;
+    });
   };
 
   const goToLive = () => {
