@@ -164,7 +164,8 @@ export default function WatchPage() {
       {/* Fullscreen button */}
       <button
         onClick={toggleFullscreen}
-        className="absolute top-4 right-4 z-50 w-10 h-10 flex items-center justify-center rounded-full bg-black/50 text-white/70 hover:text-white hover:bg-black/70 active:text-white transition-all backdrop-blur-sm"
+        onTouchEnd={(e) => { e.preventDefault(); toggleFullscreen(); }}
+        className="absolute top-4 right-4 z-[9999] w-12 h-12 flex items-center justify-center rounded-full bg-black/60 text-white/80 hover:text-white hover:bg-black/70 active:text-white transition-all backdrop-blur-sm touch-manipulation"
       >
         <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
           {isFullscreen
