@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { getActiveMatch, getStreamInfo, getViewerToken, ActiveMatch, StreamInfo } from "@/lib/api";
-import Scoreboard from "@/components/Scoreboard";
 import YouTubePlayer from "@/components/YouTubePlayer";
 import CommentatorOverlay from "@/components/CommentatorOverlay";
 
@@ -108,15 +107,7 @@ export default function WatchPage() {
         />
       )}
 
-      {/* Scoreboard overlay */}
-      {match && (
-        <Scoreboard
-          team1Name={match.team1Name}
-          team2Name={match.team2Name}
-          score={match.score}
-          courtName={match.courtName}
-        />
-      )}
+      {/* Scoreboard is burned into the video stream by stream-mixer */}
 
     </main>
   );
