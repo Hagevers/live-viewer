@@ -28,9 +28,9 @@ export default function YouTubePlayer({ youtubeUrl }: YouTubePlayerProps) {
   return (
     <iframe
       className="w-full h-full"
-      src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1&fs=0`}
-      allow="autoplay; picture-in-picture"
-      allowFullScreen={false}
+      src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1`}
+      allow="autoplay; fullscreen; picture-in-picture"
+      allowFullScreen
     />
   );
 }
