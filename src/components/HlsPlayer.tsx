@@ -23,8 +23,9 @@ export default function HlsPlayer({ hlsUrl }: HlsPlayerProps) {
 
     const hls = new Hls({
       lowLatencyMode: true,
-      liveSyncDurationCount: 3,
-      liveMaxLatencyDurationCount: 6,
+      liveSyncDuration: 2,       // target 2s behind live edge (was 3 segments = 3s)
+      liveMaxLatencyDuration: 6, // seek to live if >6s behind
+      backBufferLength: 0,       // don't hold back buffer (saves memory, reduces startup delay)
     });
 
     hls.loadSource(hlsUrl);
