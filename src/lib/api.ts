@@ -16,6 +16,7 @@ export interface ActiveMatch {
   facilityName: string;
   courtName: string;
   youtubeUrl: string | null;
+  hlsUrl: string | null;
   dailyRoomUrl: string | null;
   streamStatus: string;
   status: string;
@@ -26,6 +27,7 @@ export interface StreamInfo {
   facilityName: string;
   courtName: string;
   youtubeUrl: string | null;
+  hlsUrl: string | null;
   dailyRoomUrl: string | null;
   status: string;
 }

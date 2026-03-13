@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { getActiveMatch, getStreamInfo, getViewerToken, ActiveMatch, StreamInfo } from "@/lib/api";
-import YouTubePlayer from "@/components/YouTubePlayer";
+import HlsPlayer from "@/components/HlsPlayer";
 import CommentatorOverlay from "@/components/CommentatorOverlay";
 
 const POLL_INTERVAL = 3000;
@@ -81,13 +81,13 @@ export default function WatchPage() {
     );
   }
 
-  const youtubeUrl = match?.youtubeUrl || stream?.youtubeUrl;
+  const hlsUrl = match?.hlsUrl || stream?.hlsUrl;
 
   return (
     <main className="relative bg-black overflow-hidden w-screen h-screen">
-      {/* YouTube Player - full screen */}
-      {youtubeUrl ? (
-        <YouTubePlayer youtubeUrl={youtubeUrl} />
+      {/* HLS Player - full screen, low latency (~3-6s) */}
+      {hlsUrl ? (
+        <HlsPlayer hlsUrl={hlsUrl} />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
           <div className="text-center text-white/40">
