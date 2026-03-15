@@ -93,14 +93,15 @@ export default function CommentatePage() {
     if (!stream) return;
 
     try {
+      // TCP/TLS TURN only — eliminates packet loss at the cost of slightly higher latency.
+      // UDP TURN (port 80) causes burst packet loss that corrupts H264 video and crashes FFmpeg.
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.relay.metered.ca:80" },
-          { urls: "turn:global.relay.metered.ca:80", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
           { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
-          { urls: "turn:global.relay.metered.ca:443", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
           { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
         ],
+        iceTransportPolicy: "relay",
       });
       pcRef.current = pc;
 
