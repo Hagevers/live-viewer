@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { validateCommentatorPin, commentatorWhip, getActiveMatch, ActiveMatch } from "@/lib/api";
+import { validateCommentatorPin, commentatorWhip, getActiveMatch, getTurnConfig, ActiveMatch } from "@/lib/api";
 
 const POLL_INTERVAL = 5000;
 
@@ -93,16 +93,13 @@ export default function CommentatePage() {
     if (!stream) return;
 
     try {
+      // Fetch TURN credentials from server (not hardcoded in client code)
+      const turnConfig = await getTurnConfig(streamId, pin);
+      if (!turnConfig) throw new Error("Failed to fetch TURN server credentials");
+
       // TCP/TLS TURN only — eliminates packet loss at the cost of slightly higher latency.
       // UDP TURN (port 80) causes burst packet loss that corrupts H264 video and crashes FFmpeg.
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: "stun:stun.relay.metered.ca:80" },
-          { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
-          { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
-        ],
-        iceTransportPolicy: "relay",
-      });
+      const pc = new RTCPeerConnection(turnConfig);
       pcRef.current = pc;
 
       // Add all local tracks to the peer connection

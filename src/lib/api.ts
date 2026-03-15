@@ -67,6 +67,19 @@ export async function updateScore(
   return json.data?.score;
 }
 
+/** Fetch TURN server credentials from the server (PIN-authenticated). */
+export async function getTurnConfig(
+  streamId: string,
+  pin: string
+): Promise<{ iceServers: RTCIceServer[]; iceTransportPolicy: RTCIceTransportPolicy } | null> {
+  const res = await fetch(
+    `${API_URL}/api/streams/${streamId}/turn-credentials?pin=${encodeURIComponent(pin)}`
+  );
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json.data;
+}
+
 /** Validate the commentator PIN. Returns true if valid. */
 export async function validateCommentatorPin(streamId: string, pin: string): Promise<boolean> {
   const res = await fetch(`${API_URL}/api/streams/${streamId}/commentator-token`, {
