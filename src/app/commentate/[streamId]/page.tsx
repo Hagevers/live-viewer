@@ -105,17 +105,17 @@ export default function CommentatePage() {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Wait for ICE gathering to complete
+      // Wait for ICE gathering to complete (null candidate = done)
       await new Promise<void>((resolve) => {
         if (pc.iceGatheringState === "complete") {
           resolve();
           return;
         }
-        pc.addEventListener("icegatheringstatechange", () => {
-          if (pc.iceGatheringState === "complete") resolve();
+        pc.addEventListener("icecandidate", (e) => {
+          if (e.candidate === null) resolve(); // null = gathering finished
         });
-        // Fallback timeout in case gathering hangs
-        setTimeout(resolve, 5000);
+        // Hard fallback: 10s in case icecandidate null never fires
+        setTimeout(resolve, 10000);
       });
 
       const sdp = pc.localDescription?.sdp;
