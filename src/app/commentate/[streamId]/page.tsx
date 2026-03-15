@@ -121,6 +121,10 @@ export default function CommentatePage() {
       const sdp = pc.localDescription?.sdp;
       if (!sdp) throw new Error("Failed to gather SDP");
 
+      // Debug: log ICE candidates to diagnose mDNS/firewall issues
+      const candidates = sdp.match(/^a=candidate:.+$/mg) ?? [];
+      console.log("[WHIP] ICE candidates in offer:", candidates.join("\n"));
+
       // Send offer through monitoring-server → stream-mixer → MediaMTX
       const answerSdp = await commentatorWhip(streamId, pin, sdp);
       if (!answerSdp) throw new Error("No SDP answer from server");
