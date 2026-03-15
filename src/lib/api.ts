@@ -17,7 +17,6 @@ export interface ActiveMatch {
   courtName: string;
   youtubeUrl: string | null;
   hlsUrl: string | null;
-  dailyRoomUrl: string | null;
   streamStatus: string;
   status: string;
 }
@@ -28,7 +27,6 @@ export interface StreamInfo {
   courtName: string;
   youtubeUrl: string | null;
   hlsUrl: string | null;
-  dailyRoomUrl: string | null;
   status: string;
 }
 
@@ -69,23 +67,27 @@ export async function updateScore(
   return json.data?.score;
 }
 
-export async function getViewerToken(streamId: string): Promise<{ token: string; roomUrl: string; roomName: string } | null> {
-  const res = await fetch(`${API_URL}/api/streams/${streamId}/viewer-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json.data;
-}
-
-export async function getCommentatorToken(streamId: string, pin: string): Promise<{ token: string; roomUrl: string; roomName: string } | null> {
+/** Validate the commentator PIN. Returns true if valid. */
+export async function validateCommentatorPin(streamId: string, pin: string): Promise<boolean> {
   const res = await fetch(`${API_URL}/api/streams/${streamId}/commentator-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ pin }),
   });
+  return res.ok;
+}
+
+/**
+ * Send a WebRTC SDP offer to the monitoring-server WHIP proxy.
+ * The server validates the PIN, then forwards the SDP to stream-mixer → MediaMTX.
+ * Returns the SDP answer string, or null on failure.
+ */
+export async function commentatorWhip(streamId: string, pin: string, sdp: string): Promise<string | null> {
+  const res = await fetch(`${API_URL}/api/streams/${streamId}/commentator-whip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin, sdp }),
+  });
   if (!res.ok) return null;
-  const json = await res.json();
-  return json.data;
+  return res.text();
 }

@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getActiveMatch, getStreamInfo, getViewerToken, ActiveMatch, StreamInfo } from "@/lib/api";
+import { getActiveMatch, getStreamInfo, ActiveMatch, StreamInfo } from "@/lib/api";
 import HlsPlayer from "@/components/HlsPlayer";
-import CommentatorOverlay from "@/components/CommentatorOverlay";
 
 const POLL_INTERVAL = 3000;
 
@@ -13,7 +12,6 @@ export default function WatchPage() {
   const streamId = params.streamId as string;
   const [stream, setStream] = useState<StreamInfo | null>(null);
   const [match, setMatch] = useState<ActiveMatch | null>(null);
-  const [dailyToken, setDailyToken] = useState<{ token: string; roomUrl: string; roomName: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,12 +31,6 @@ export default function WatchPage() {
       }
       setStream(info);
       setLoading(false);
-
-      // Get viewer token for Daily.co
-      const token = await getViewerToken(streamId);
-      if (token?.token) {
-        setDailyToken(token);
-      }
     }
     fetchStream();
   }, [streamId]);
@@ -99,15 +91,7 @@ export default function WatchPage() {
         </div>
       )}
 
-      {/* Commentator PiP overlay */}
-      {dailyToken && (
-        <CommentatorOverlay
-          roomUrl={dailyToken.roomUrl}
-          token={dailyToken.token}
-        />
-      )}
-
-      {/* Scoreboard is burned into the video stream by stream-mixer */}
+      {/* Scoreboard and commentator PiP are burned into the video stream by stream-mixer */}
 
     </main>
   );

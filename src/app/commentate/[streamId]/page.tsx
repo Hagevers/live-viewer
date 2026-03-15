@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { getCommentatorToken, getActiveMatch, ActiveMatch } from "@/lib/api";
+import { validateCommentatorPin, commentatorWhip, getActiveMatch, ActiveMatch } from "@/lib/api";
 
 const POLL_INTERVAL = 5000;
 
@@ -19,9 +19,10 @@ export default function CommentatePage() {
   const [cameraOff, setCameraOff] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const callRef = useRef<any>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
-  // Validate PIN and get token
+  // Validate PIN
   useEffect(() => {
     async function init() {
       if (!pin) {
@@ -30,18 +31,14 @@ export default function CommentatePage() {
         return;
       }
 
-      const tokenData = await getCommentatorToken(streamId, pin);
-      if (!tokenData?.token) {
+      const valid = await validateCommentatorPin(streamId, pin);
+      if (!valid) {
         setStatus("error");
         setErrorMsg("Invalid PIN or stream not found");
         return;
       }
 
-      // Show preview first
       setStatus("preview");
-
-      // Store token for when user goes live
-      (window as any).__dailyTokenData = tokenData;
     }
 
     init();
@@ -70,11 +67,10 @@ export default function CommentatePage() {
   useEffect(() => {
     if (status !== "preview" && status !== "live") return;
 
-    let stream: MediaStream;
-
     async function startPreview() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
@@ -87,49 +83,77 @@ export default function CommentatePage() {
     startPreview();
 
     return () => {
-      stream?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
     };
-  }, [status]);
+  }, [status === "preview" || status === "live" ? "active" : "inactive"]);
 
   const goLive = async () => {
-    const tokenData = (window as any).__dailyTokenData;
-    if (!tokenData) return;
+    const stream = localStreamRef.current;
+    if (!stream) return;
 
     try {
-      const DailyIframe = (await import("@daily-co/daily-js")).default;
-      const call = DailyIframe.createCallObject();
-      callRef.current = call;
-
-      await call.join({
-        url: tokenData.roomUrl,
-        token: tokenData.token,
-        startVideoOff: false,
-        startAudioOff: false,
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
+      pcRef.current = pc;
+
+      // Add all local tracks to the peer connection
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      // Create SDP offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Wait for ICE gathering to complete
+      await new Promise<void>((resolve) => {
+        if (pc.iceGatheringState === "complete") {
+          resolve();
+          return;
+        }
+        pc.addEventListener("icegatheringstatechange", () => {
+          if (pc.iceGatheringState === "complete") resolve();
+        });
+        // Fallback timeout in case gathering hangs
+        setTimeout(resolve, 5000);
+      });
+
+      const sdp = pc.localDescription?.sdp;
+      if (!sdp) throw new Error("Failed to gather SDP");
+
+      // Send offer through monitoring-server → stream-mixer → MediaMTX
+      const answerSdp = await commentatorWhip(streamId, pin, sdp);
+      if (!answerSdp) throw new Error("No SDP answer from server");
+
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
       setStatus("live");
     } catch (err: any) {
+      pcRef.current?.close();
+      pcRef.current = null;
       setStatus("error");
       setErrorMsg("Failed to connect: " + (err.message || "Unknown error"));
     }
   };
 
-  const endBroadcast = async () => {
-    callRef.current?.leave();
-    callRef.current?.destroy();
+  const endBroadcast = () => {
+    pcRef.current?.close();
+    pcRef.current = null;
     setStatus("preview");
   };
 
   const toggleMute = () => {
-    if (callRef.current) {
-      callRef.current.setLocalAudio(muted);
+    const stream = localStreamRef.current;
+    if (stream) {
+      stream.getAudioTracks().forEach((t) => (t.enabled = muted));
     }
     setMuted(!muted);
   };
 
   const toggleCamera = () => {
-    if (callRef.current) {
-      callRef.current.setLocalVideo(cameraOff);
+    const stream = localStreamRef.current;
+    if (stream) {
+      stream.getVideoTracks().forEach((t) => (t.enabled = cameraOff));
     }
     setCameraOff(!cameraOff);
   };
