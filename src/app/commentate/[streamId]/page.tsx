@@ -94,7 +94,12 @@ export default function CommentatePage() {
 
     try {
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceServers: [
+          { urls: "stun:hitit.metered.live:80" },
+          { urls: "turn:hitit.metered.live:80", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
+          { urls: "turn:hitit.metered.live:80?transport=tcp", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
+          { urls: "turns:hitit.metered.live:443?transport=tcp", username: "c616d60326edca3800850e43", credential: "Yy2KDjPc0gKhUaZg" },
+        ],
       });
       pcRef.current = pc;
 
